@@ -54,6 +54,8 @@ class IPType(ExtensionDtype):
 # Extension Container
 # -----------------------------------------------------------------------------
 
+HANDLED_FUNCTIONS = {}
+
 
 class IPArray(NumPyBackedExtensionArrayMixin):
     """Holder for IP Addresses.
@@ -83,6 +85,12 @@ class IPArray(NumPyBackedExtensionArrayMixin):
         if copy:
             values = values.copy()
         self.data = values
+
+    def __array_function__(self, func, types, args, kwargs):
+        cls = type(self)
+        if not all(issubclass(t, cls) for t in types):
+            return NotImplemented
+        return HANDLED_FUNCTIONS[func](*args, **kwargs)
 
     @classmethod
     def from_pyints(cls, values):
@@ -658,7 +666,6 @@ class IPArray(NumPyBackedExtensionArrayMixin):
         masked = np.bitwise_and(a, b).ravel().view(self.dtype._record_type)
         return type(self)(masked)
 
-
 # -----------------------------------------------------------------------------
 # Accessor
 # -----------------------------------------------------------------------------
@@ -716,3 +723,20 @@ def is_ipaddress_type(obj):
         return isinstance(t, IPType) or issubclass(t, IPType)
     except Exception:
         return False
+
+
+# ---------
+
+def implements(numpy_function):
+    """Register an __array_function__ implementation for MyArray objects."""
+    def decorator(func):
+        HANDLED_FUNCTIONS[numpy_function] = func
+        return func
+    return decorator
+
+
+@implements(np.concatenate)
+def concatenate(arrays, axis=0, out=None):
+    if axis != 0:
+        raise NotImplementedError(f"Axis != 0 is not supported. (Got {axis}).")
+    return IPArray(np.concatenate([array.data for array in arrays]))
